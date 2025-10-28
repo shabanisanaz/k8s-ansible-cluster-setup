@@ -1,0 +1,27 @@
+- name: Stage 3b - Install crictl
+  hosts: all
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Download and install crictl
+      ansible.builtin.shell:
+        cmd: |
+          # Download crictl
+          curl -L https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.30.0/crictl-v1.30.0-linux-amd64.tar.gz -o /tmp/crictl.tar.gz
+          # Extract to /usr/local/bin
+          tar zxvf /tmp/crictl.tar.gz -C /usr/local/bin
+          # Make executable
+          chmod +x /usr/local/bin/crictl
+          # Clean up
+          rm -f /tmp/crictl.tar.gz
+        warn: false
+
+    - name: Verify crictl installation
+      ansible.builtin.command:
+        cmd: crictl --version
+      register: crictl_check
+
+    - name: Show crictl status
+      ansible.builtin.debug:
+        msg: " crictl installed: {{ crictl_check.stdout }}"
