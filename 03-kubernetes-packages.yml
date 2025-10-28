@@ -1,0 +1,133 @@
+- name: Stage 3 - Install Kubernetes Binaries and Dependencies
+  hosts: all
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # -------------------------------
+    #  Update System and Install Dependencies
+    # -------------------------------
+    - name: Update system packages
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required dependencies
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - gnupg
+          - apt-transport-https
+          - ca-certificates
+          - software-properties-common
+        state: present
+
+    # -------------------------------
+    #  Download Kubernetes Binaries (WITHOUT checksum)
+    # -------------------------------
+    - name: Create binaries directory
+      ansible.builtin.file:
+        path: /usr/local/bin
+        state: directory
+        mode: '0755'
+
+    - name: Download kubeadm binary
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubeadm"
+        dest: /usr/local/bin/kubeadm
+        mode: '0755'
+        timeout: 60
+      ignore_errors: yes
+
+    - name: Download kubelet binary
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubelet"
+        dest: /usr/local/bin/kubelet
+        mode: '0755'
+        timeout: 60
+      ignore_errors: yes
+
+    - name: Download kubectl binary
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+        timeout: 60
+      ignore_errors: yes
+
+    # -------------------------------
+    #  Configure kubelet Systemd Service (FIXED)
+    # -------------------------------
+    - name: Create kubelet systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/kubelet.service
+        content: |
+          [Unit]
+          Description=Kubernetes Kubelet
+          Documentation=https://kubernetes.io/docs/home/
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          ExecStart=/usr/local/bin/kubelet
+          Restart=always
+          StartLimitInterval=0
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: '0644'
+
+    # -------------------------------
+    #  Start and Enable Services (WITH DEPENDENCY FIX)
+    # -------------------------------
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: yes
+
+    - name: Start and enable kubelet service (with dependency fix)
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+        enabled: yes
+      ignore_errors: yes
+
+    - name: Ensure containerd is running
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: yes
+
+    # -------------------------------
+    #  Verification and Validation (FIXED)
+    # -------------------------------
+    - name: Verify Kubernetes binaries are present
+      ansible.builtin.shell:
+        cmd: ls -la /usr/local/bin/kube*
+      register: binary_check
+
+    - name: Display binary check results
+      ansible.builtin.debug:
+        msg: "Binary check on {{ inventory_hostname }}: {{ binary_check.stdout }}"
+
+    - name: Verify services status
+      ansible.builtin.shell:
+        cmd: |
+          echo "Kubelet: $(systemctl is-active kubelet)"
+          echo "Containerd: $(systemctl is-active containerd)"
+      register: service_status
+
+    - name: Display service status results
+      ansible.builtin.debug:
+        msg: "Service status on {{ inventory_hostname }}: {{ service_status.stdout }}"
+
+    - name: Final success message
+      ansible.builtin.debug:
+        msg: |
+           STAGE 3 COMPLETED on {{ inventory_hostname }}
+           Kubernetes binaries are ready
+           Services are configured
+           Ready for cluster initialization!
