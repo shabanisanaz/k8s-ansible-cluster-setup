@@ -1,0 +1,109 @@
+
+- name: Stage 2 - System Prerequisites and Containerd Installation
+  hosts: all
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # -------------------------------
+    #  Disable Swap
+    # -------------------------------
+    - name: Disable swap immediately
+      ansible.builtin.shell:
+        cmd: swapoff -a
+      ignore_errors: yes
+
+    - name: Remove swap entries from fstab permanently
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^.*swap.*$'
+        replace: ''
+        backup: yes
+
+    # -------------------------------
+    #  Load Kernel Modules
+    # -------------------------------
+    - name: Load kernel modules
+      ansible.builtin.shell:
+        cmd: modprobe {{ item }}
+      loop:
+        - br_netfilter
+        - overlay
+      ignore_errors: yes
+
+    - name: Ensure kernel modules load on boot
+      ansible.builtin.lineinfile:
+        path: /etc/modules
+        line: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    # -------------------------------
+    #  Sysctl Configuration for Kubernetes
+    # -------------------------------
+    - name: Configure sysctl parameters
+      ansible.builtin.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+        sysctl_set: yes
+      loop:
+        - { key: net.ipv4.ip_forward, value: '1' }
+        - { key: net.bridge.bridge-nf-call-iptables, value: '1' }
+        - { key: net.bridge.bridge-nf-call-ip6tables, value: '1' }
+
+    # -------------------------------
+    #  Install Containerd from Ubuntu Repository
+    # -------------------------------
+    - name: Update package cache
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Install containerd (from Ubuntu default repository)
+      ansible.builtin.apt:
+        name: containerd
+        state: present
+
+    - name: Configure containerd
+      ansible.builtin.shell:
+        cmd: |
+          mkdir -p /etc/containerd
+          containerd config default | tee /etc/containerd/config.toml
+          sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+      args:
+        warn: false
+
+    - name: Start and enable containerd service
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    # -------------------------------
+    #  Verification
+    # -------------------------------
+    - name: Verify containerd installation
+      ansible.builtin.command:
+        cmd: containerd --version
+      register: containerd_version
+      ignore_errors: yes
+
+    - name: Verify containerd service status
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+      register: containerd_status
+
+    - name: Show final results
+      ansible.builtin.debug:
+        msg: |
+          ✅ Stage 2 completed on {{ inventory_hostname }}
+          Containerd Version: {{ containerd_version.stdout | default('Not available') }}
+          Containerd Service: {{ containerd_status.state }}
+          Swap: Disabled
+          Kernel Modules: Loaded
+
