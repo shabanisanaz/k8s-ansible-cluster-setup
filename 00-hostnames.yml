@@ -1,0 +1,33 @@
+- name: Configure hostnames for Kubernetes cluster
+  hosts: all
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Set permanent hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Create /etc/hosts with only cluster nodes
+      ansible.builtin.copy:
+        dest: /etc/hosts
+        content: |
+          # Kubernetes Cluster Nodes
+          192.168.250.130 master1
+          192.168.250.131 master2
+          192.168.250.132 master3
+          192.168.250.155 worker1
+          192.168.250.156 worker2
+          192.168.250.157 worker3
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+
+    - name: Verify hostname setup
+      ansible.builtin.command: hostname
+      register: hostname_result
+
+    - name: Show final result
+      ansible.builtin.debug:
+        msg: " Hostname successfully set to '{{ hostname_result.stdout }}' on {{ ansible_host }}"
